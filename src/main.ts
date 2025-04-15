@@ -19,6 +19,30 @@ interface DesignSystemIssue {
   severity: 'high' | 'medium' | 'low';
 }
 
+interface AnalysisComponent {
+  name: string;
+  type: 'COMPONENT' | 'INSTANCE';
+}
+
+interface AnalysisStyle {
+  type: string;
+  value: string;
+}
+
+interface AnalysisInconsistency {
+  message: string;
+}
+
+interface AnalysisData {
+  components: AnalysisComponent[];
+  styles: {
+    colors: string[];
+    textStyles: string[];
+    effects: string[];
+  };
+  inconsistencies: AnalysisInconsistency[];
+}
+
 // Function to collect metrics
 function collectMetrics(): DesignSystemMetrics {
   const metrics: DesignSystemMetrics = {
@@ -67,13 +91,19 @@ function traverseNodes(node: SceneNode, metrics: DesignSystemMetrics) {
   }
 
   // Check for text styles
-  if (node.type === 'TEXT' && node.textStyleId) {
-    const style = figma.getStyleById(node.textStyleId);
-    if (style) {
-      metrics.tokenUsage.set(
-        style.name,
-        (metrics.tokenUsage.get(style.name) || 0) + 1
-      );
+  if (node.type === 'TEXT') {
+    const textNode = node as TextNode;
+    const styleId = textNode.textStyleId;
+    
+    // Check if styleId is a string (not mixed)
+    if (typeof styleId === 'string') {
+      const style = figma.getStyleById(styleId);
+      if (style) {
+        metrics.tokenUsage.set(
+          style.name,
+          (metrics.tokenUsage.get(style.name) || 0) + 1
+        );
+      }
     }
   }
 
@@ -90,10 +120,10 @@ function traverseNodes(node: SceneNode, metrics: DesignSystemMetrics) {
 function checkInconsistencies(node: SceneNode, metrics: DesignSystemMetrics) {
   // Example checks - can be expanded based on your design system rules
   if (node.type === 'TEXT') {
-    if (!node.textStyleId) {
+    if (!node.textStyleId || node.textStyleId === figma.mixed) {
       metrics.inconsistencies.push({
         type: 'style',
-        message: 'Text without style',
+        message: 'Text without consistent style',
         nodeId: node.id,
         severity: 'medium'
       });
@@ -140,55 +170,111 @@ figma.ui.onmessage = async (msg) => {
   }
 
   if (msg.type === 'analyze-design-system') {
-    const nodes = figma.currentPage.selection;
-    
-    if (nodes.length === 0) {
-      figma.ui.postMessage({
-        type: 'error',
-        message: 'Please select at least one node to analyze'
-      });
-      return;
-    }
-
-    const analysis = {
-      totalNodes: nodes.length,
-      components: [],
-      styles: [],
-      inconsistencies: []
-    };
-
-    // Analyze each selected node
-    for (const node of nodes) {
-      if (node.type === 'COMPONENT' || node.type === 'INSTANCE') {
-        analysis.components.push({
-          name: node.name,
-          type: node.type
+    try {
+      const selection = figma.currentPage.selection;
+      
+      if (selection.length === 0) {
+        figma.ui.postMessage({
+          type: 'error',
+          message: 'Please select at least one frame or component to analyze.'
         });
+        return;
       }
 
-      // Check for style inconsistencies
-      if ('fills' in node) {
-        const fills = node.fills as ReadonlyArray<Paint>;
-        for (const fill of fills) {
-          if (fill.type === 'SOLID') {
-            analysis.styles.push({
-              type: 'fill',
-              color: {
-                r: fill.color.r,
-                g: fill.color.g,
-                b: fill.color.b,
-                a: fill.opacity
+      const analysis: AnalysisData = {
+        components: [],
+        styles: {
+          colors: [],
+          textStyles: [],
+          effects: []
+        },
+        inconsistencies: []
+      };
+
+      // Analyze each selected node
+      const processNode = (node: SceneNode) => {
+        // Analyze components
+        if (node.type === 'COMPONENT' || node.type === 'INSTANCE') {
+          analysis.components.push({
+            name: node.name,
+            type: node.type
+          });
+        }
+
+        // Analyze styles
+        if ('fills' in node && node.fills) {
+          const fills = node.fills as Paint[];
+          fills.forEach(fill => {
+            if (fill.type === 'SOLID') {
+              const color = fill.color;
+              const colorStr = `rgb(${Math.round(color.r * 255)}, ${Math.round(color.g * 255)}, ${Math.round(color.b * 255)})`;
+              if (!analysis.styles.colors.includes(colorStr)) {
+                analysis.styles.colors.push(colorStr);
               }
-            });
+            }
+          });
+        }
+
+        // Check for text styles
+        if (node.type === 'TEXT') {
+          const textNode = node as TextNode;
+          const styleId = textNode.textStyleId;
+          
+          // Only process if styleId is a string (not mixed)
+          if (typeof styleId === 'string') {
+            const style = figma.getStyleById(styleId);
+            if (style && !analysis.styles.textStyles.includes(style.name)) {
+              analysis.styles.textStyles.push(style.name);
+            }
           }
         }
-      }
-    }
 
-    // Send analysis results back to UI
-    figma.ui.postMessage({
-      type: 'analysis-results',
-      data: analysis
-    });
+        // Check for effects
+        if ('effects' in node && node.effects) {
+          const effects = node.effects as Effect[];
+          effects.forEach(effect => {
+            if (effect.type === 'DROP_SHADOW' || effect.type === 'INNER_SHADOW') {
+              const effectStr = `${effect.type}: ${Math.round(effect.radius)}px`;
+              if (!analysis.styles.effects.includes(effectStr)) {
+                analysis.styles.effects.push(effectStr);
+              }
+            }
+          });
+        }
+
+        // Check for inconsistencies
+        if (node.type === 'INSTANCE') {
+          const mainComponent = node.mainComponent;
+          if (mainComponent) {
+            const overrides = 'overrides' in node ? (node as any).overrides : [];
+            if (overrides && overrides.length > 0) {
+              analysis.inconsistencies.push({
+                message: `Instance "${node.name}" has ${overrides.length} overrides from main component "${mainComponent.name}"`
+              });
+            }
+          }
+        }
+
+        // Process children
+        if ('children' in node) {
+          (node as ChildrenMixin).children.forEach(child => processNode(child));
+        }
+      };
+
+      // Process all selected nodes
+      selection.forEach(node => processNode(node));
+
+      // Send analysis results to UI
+      figma.ui.postMessage({
+        type: 'analysis-results',
+        data: analysis
+      });
+
+    } catch (error) {
+      figma.ui.postMessage({
+        type: 'error',
+        message: 'An error occurred during analysis: ' + (error instanceof Error ? error.message : String(error))
+      });
+    }
   }
 };
