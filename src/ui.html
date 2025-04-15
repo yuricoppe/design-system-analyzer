@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      margin: 0;
+      padding: 20px;
+      color: #333;
+    }
+
+    .container {
+      max-width: 100%;
+    }
+
+    h1 {
+      font-size: 18px;
+      margin-bottom: 20px;
+      color: #333;
+    }
+
+    button {
+      background-color: #18A0FB;
+      color: white;
+      border: none;
+      padding: 8px 16px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 14px;
+      width: 100%;
+      margin-bottom: 20px;
+    }
+
+    button:hover {
+      background-color: #0D8DE3;
+    }
+
+    .results {
+      margin-top: 20px;
+    }
+
+    .section {
+      margin-bottom: 20px;
+    }
+
+    .section-title {
+      font-size: 16px;
+      font-weight: 600;
+      margin-bottom: 10px;
+    }
+
+    .item {
+      background: #F5F5F5;
+      padding: 10px;
+      border-radius: 6px;
+      margin-bottom: 8px;
+      font-size: 14px;
+    }
+
+    .error {
+      color: #FF4D4D;
+      background: #FFE5E5;
+      padding: 10px;
+      border-radius: 6px;
+      margin-top: 20px;
+      font-size: 14px;
+    }
+
+    .loading {
+      text-align: center;
+      padding: 20px;
+      color: #666;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Design System Analyzer</h1>
+    <button id="analyze">Analyze Selection</button>
+    
+    <div id="loading" class="loading" style="display: none;">
+      Analyzing design system...
+    </div>
+
+    <div id="results" class="results" style="display: none;">
+      <div class="section">
+        <div class="section-title">Components</div>
+        <div id="components"></div>
+      </div>
+
+      <div class="section">
+        <div class="section-title">Styles</div>
+        <div id="styles"></div>
+      </div>
+
+      <div class="section">
+        <div class="section-title">Inconsistencies</div>
+        <div id="inconsistencies"></div>
+      </div>
+    </div>
+
+    <div id="error" class="error" style="display: none;"></div>
+  </div>
+
+  <script>
+    document.getElementById('analyze').onclick = () => {
+      document.getElementById('loading').style.display = 'block';
+      document.getElementById('results').style.display = 'none';
+      document.getElementById('error').style.display = 'none';
+      
+      parent.postMessage({ pluginMessage: { type: 'analyze-design-system' } }, '*');
+    };
+
+    onmessage = (event) => {
+      const msg = event.data.pluginMessage;
+      
+      if (msg.type === 'analysis-results') {
+        document.getElementById('loading').style.display = 'none';
+        document.getElementById('results').style.display = 'block';
+        
+        const componentsDiv = document.getElementById('components');
+        const stylesDiv = document.getElementById('styles');
+        const inconsistenciesDiv = document.getElementById('inconsistencies');
+
+        componentsDiv.innerHTML = msg.data.components
+          .map(c => `<div class="item">${c.name} (${c.count} uses)</div>`)
+          .join('');
+
+        stylesDiv.innerHTML = msg.data.styles
+          .map(s => `<div class="item">${s.name} (${s.count} uses)</div>`)
+          .join('');
+
+        inconsistenciesDiv.innerHTML = msg.data.inconsistencies.length > 0
+          ? msg.data.inconsistencies.map(i => `<div class="item">${i.message}</div>`).join('')
+          : '<div class="item">No inconsistencies found</div>';
+      }
+      else if (msg.type === 'error') {
+        document.getElementById('loading').style.display = 'none';
+        document.getElementById('error').style.display = 'block';
+        document.getElementById('error').textContent = msg.error;
+      }
+    };
+  </script>
+</body>
+</html> 
