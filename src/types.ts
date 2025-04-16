@@ -50,7 +50,7 @@ export interface AnalysisData {
 }
 
 export type MessageType = 
-  | 'analyze-selection'
+  | 'analyze-design-system'
   | 'create-variable'
   | 'replace-color'
   | 'analysis-results'
@@ -60,8 +60,8 @@ export interface BaseMessage {
   type: MessageType;
 }
 
-export interface AnalyzeSelectionMessage extends BaseMessage {
-  type: 'analyze-selection';
+export interface AnalyzeDesignSystemMessage extends BaseMessage {
+  type: 'analyze-design-system';
 }
 
 export interface CreateVariableMessage extends BaseMessage {
@@ -90,7 +90,7 @@ export interface ErrorMessage extends BaseMessage {
 }
 
 export type PluginMessage =
-  | AnalyzeSelectionMessage
+  | AnalyzeDesignSystemMessage
   | CreateVariableMessage
   | ReplaceColorMessage
   | AnalysisResultsMessage

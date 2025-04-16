@@ -1,0 +1,33 @@
+{
+  "name": "Design System Analyzer",
+  "id": "design-system-analyzer",
+  "api": "1.0.0",
+  "main": "dist/code.js",
+  "ui": "dist/ui.html",
+  "editorType": ["figma", "dev"],
+  "networkAccess": {
+    "allowedDomains": ["*"],
+    "reasoning": "The plugin needs to access external services for design token validation and style guide references"
+  },
+  "permissions": [
+    "currentuser",
+    "activeusers",
+    "fileusers"
+  ],
+  "capabilities": [
+    "inspect",
+    "codegen",
+    "vscode"
+  ],
+  "codegenLanguages": [
+    {
+      "label": "TypeScript",
+      "value": "typescript"
+    },
+    {
+      "label": "JavaScript",
+      "value": "javascript"
+    }
+  ],
+  "enableProposedApi": false
+} 

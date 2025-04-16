@@ -15,7 +15,7 @@ try {
   figma.ui.onmessage = async (msg: PluginMessage) => {
     try {
       switch (msg.type) {
-        case 'analyze-selection':
+        case 'analyze-design-system':
           await handleAnalyzeSelection();
           break;
         case 'create-variable':
