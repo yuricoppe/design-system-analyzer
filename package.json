@@ -6,10 +6,7 @@
   "scripts": {
     "build": "webpack --config webpack.config.js && cp src/ui.html dist/ui.html",
     "watch": "webpack --config webpack.config.js --watch",
-    "dev": "node scripts/dev.js",
-    "list": "node scripts/dev.js list",
-    "generate": "node scripts/dev.js generate",
-    "parse-prd": "node scripts/dev.js parse-prd"
+    "dev": "node scripts/dev.js"
   },
   "author": "",
   "license": "MIT",
@@ -18,7 +15,6 @@
     "@types/node": "^20.11.19",
     "html-loader": "^5.1.0",
     "raw-loader": "^4.0.2",
-    "task-master-ai": "^0.11.1",
     "ts-loader": "^9.5.1",
     "typescript": "^5.3.3",
     "webpack": "^5.90.1",
