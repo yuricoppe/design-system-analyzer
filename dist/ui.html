@@ -362,13 +362,15 @@
             useVariableBtn.className = 'use-variable';
             useVariableBtn.textContent = item.variableName ? 'Use Variable' : 'Search Variable';
             useVariableBtn.onclick = () => {
-              if (item.variableName && item.variableId) {
+              if (item.variableName && item.variableId && item.variableKey) {
                 // Se já tem variável na seleção, usa ela diretamente
-                const variable = figma.variables.getVariableById(item.variableId);
                 parent.postMessage({ 
                   pluginMessage: { 
                     type: 'use-variable',
-                    data: { hex: item.hex, variableKey: variable.key }
+                    data: { 
+                      hex: item.hex, 
+                      variableKey: item.variableKey 
+                    }
                   } 
                 }, '*');
               } else {

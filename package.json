@@ -4,8 +4,8 @@
   "description": "A Figma plugin to analyze design systems",
   "main": "code.js",
   "scripts": {
-    "build": "webpack --config webpack.config.js && cp src/ui.html dist/ui.html",
-    "watch": "webpack --config webpack.config.js --watch",
+    "build": "NODE_OPTIONS=--experimental-vm-modules webpack --config webpack.config.js && cp src/ui.html dist/ui.html",
+    "watch": "NODE_OPTIONS=--experimental-vm-modules webpack --config webpack.config.js --watch",
     "dev": "node scripts/dev.js"
   },
   "author": "",
