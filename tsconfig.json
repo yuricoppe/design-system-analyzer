@@ -2,15 +2,20 @@
   "compilerOptions": {
     "target": "es6",
     "lib": ["es6", "dom"],
-    "moduleResolution": "node",
     "typeRoots": ["./node_modules/@types", "./node_modules/@figma"],
+    "moduleResolution": "node",
     "strict": true,
+    "noImplicitAny": true,
+    "strictNullChecks": true,
+    "strictFunctionTypes": true,
+    "noImplicitThis": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noImplicitReturns": true,
+    "noFallthroughCasesInSwitch": true,
+    "allowSyntheticDefaultImports": true,
     "esModuleInterop": true,
-    "skipLibCheck": true,
-    "forceConsistentCasingInFileNames": true,
-    "outDir": "dist",
-    "noImplicitAny": false,
-    "allowJs": true
+    "skipLibCheck": true
   },
   "include": ["src/**/*"],
   "exclude": ["node_modules"]

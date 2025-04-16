@@ -1,107 +1,184 @@
-interface Component {
-  name: string;
-  count: number;
-}
+import { Component, Styles, AnalysisData, PluginMessage } from './types';
 
-interface Style {
-  name: string;
-  count: number;
-}
-
-interface Inconsistency {
-  message: string;
-}
-
-interface AnalysisResults {
-  components: Component[];
-  styles: Style[];
-  inconsistencies: Inconsistency[];
-}
-
+// Configuração inicial da UI
 figma.showUI(__html__, { width: 400, height: 600 });
 
-figma.ui.onmessage = async (msg) => {
+// Função auxiliar para log
+function log(message: string, data?: any) {
+  console.log(`[Design System Analyzer] ${message}`, data || '');
+}
+
+// Função para converter RGB para Hex
+function rgbToHex(r: number, g: number, b: number): string {
+  const toHex = (n: number) => {
+    const hex = Math.round(n * 255).toString(16);
+    return hex.length === 1 ? '0' + hex : hex;
+  };
+  return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
+}
+
+// Função para processar preenchimentos (fills)
+function processFills(fills: readonly Paint[], styles: Styles) {
+  fills.forEach(fill => {
+    if (fill.type === 'SOLID') {
+      const hexColor = rgbToHex(fill.color.r, fill.color.g, fill.color.b);
+      if (!styles.colors.includes(hexColor)) {
+        styles.colors.push(hexColor);
+        log('Added color:', hexColor);
+      }
+    } else if (fill.type === 'GRADIENT_LINEAR' || fill.type === 'GRADIENT_RADIAL') {
+      const gradientStops = fill.gradientStops.map(stop => 
+        rgbToHex(stop.color.r, stop.color.g, stop.color.b)
+      );
+      const gradientName = `${fill.type} (${gradientStops.join(' → ')})`;
+      if (!styles.colors.includes(gradientName)) {
+        styles.colors.push(gradientName);
+        log('Added gradient:', gradientName);
+      }
+    }
+  });
+}
+
+// Função para processar efeitos
+function processEffects(effects: readonly Effect[], styles: Styles) {
+  effects.forEach(effect => {
+    let effectName = '';
+    if (effect.type === 'DROP_SHADOW' || effect.type === 'INNER_SHADOW') {
+      effectName = `${effect.type} (${effect.color.r}, ${effect.color.g}, ${effect.color.b}, ${effect.color.a})`;
+    } else if (effect.type === 'LAYER_BLUR' || effect.type === 'BACKGROUND_BLUR') {
+      effectName = `${effect.type} (${effect.radius}px)`;
+    }
+    if (effectName && !styles.effects.includes(effectName)) {
+      styles.effects.push(effectName);
+      log('Added effect:', effectName);
+    }
+  });
+}
+
+// Função para processar um nó e seus filhos
+function processNode(node: SceneNode, styles: Styles) {
+  log('Processing node:', { type: node.type, name: node.name });
+
+  // Processar preenchimentos
+  if ('fills' in node && node.fills) {
+    processFills(node.fills, styles);
+  }
+
+  // Processar estilos de texto
+  if (node.type === 'TEXT') {
+    const textNode = node as TextNode;
+    log('Processing text node:', { styleId: textNode.textStyleId });
+    if (textNode.textStyleId && typeof textNode.textStyleId === 'string') {
+      const style = figma.getStyleById(textNode.textStyleId);
+      if (style && !styles.textStyles.includes(style.name)) {
+        styles.textStyles.push(style.name);
+        log('Added text style:', style.name);
+      }
+    }
+  }
+
+  // Processar efeitos
+  if ('effects' in node && node.effects) {
+    processEffects(node.effects, styles);
+  }
+
+  // Processar filhos recursivamente
+  if ('children' in node) {
+    const children = node.children as readonly SceneNode[];
+    log('Processing children:', children.length);
+    children.forEach(child => processNode(child, styles));
+  }
+}
+
+// Função para coletar componentes
+function collectComponents(node: SceneNode, components: Component[], processedIds: Set<string>) {
+  if (node.type === 'COMPONENT' || node.type === 'COMPONENT_SET') {
+    if (!processedIds.has(node.id)) {
+      components.push({
+        name: node.name,
+        type: node.type
+      });
+      processedIds.add(node.id);
+      log('Added component:', { name: node.name, type: node.type });
+    }
+  }
+
+  if ('children' in node) {
+    const children = node.children as readonly SceneNode[];
+    children.forEach(child => collectComponents(child, components, processedIds));
+  }
+}
+
+// Handler para mensagens da UI
+figma.ui.onmessage = async (msg: PluginMessage) => {
   if (msg.type === 'analyze-design-system') {
     try {
-      const selection = figma.currentPage.selection;
+      log('Starting analysis...');
       
-      if (selection.length === 0) {
-        figma.ui.postMessage({
-          type: 'error',
-          error: 'Please select at least one element to analyze.'
-        });
-        return;
+      // Verificar seleção
+      if (figma.currentPage.selection.length === 0) {
+        throw new Error('Please select at least one frame or component to analyze.');
       }
+      log('Selection found:', figma.currentPage.selection.length);
 
-      const results: AnalysisResults = {
-        components: [],
-        styles: [],
-        inconsistencies: []
+      // Inicializar dados
+      const styles: Styles = {
+        colors: [],
+        textStyles: [],
+        effects: []
       };
 
-      // Analyze components
-      const componentMap = new Map<string, number>();
-      const styleMap = new Map<string, number>();
+      const components: Component[] = [];
+      const processedIds = new Set<string>();
+
+      // Processar seleção
+      figma.currentPage.selection.forEach(node => {
+        collectComponents(node, components, processedIds);
+        processNode(node, styles);
+      });
+
+      // Verificar inconsistências
       const inconsistencies: string[] = [];
-
-      const processNode = (node: SceneNode) => {
-        if (node.type === 'COMPONENT' || node.type === 'INSTANCE') {
-          const name = node.name;
-          componentMap.set(name, (componentMap.get(name) || 0) + 1);
-        }
-
-        if ('fills' in node) {
-          const fills = node.fills as readonly Paint[];
-          fills.forEach((fill: Paint) => {
-            if (fill.type === 'SOLID' && fill.color) {
-              const styleName = `Color: ${Math.round(fill.color.r * 255)},${Math.round(fill.color.g * 255)},${Math.round(fill.color.b * 255)}`;
-              styleMap.set(styleName, (styleMap.get(styleName) || 0) + 1);
-            }
-          });
-        }
-
-        if ('children' in node) {
-          node.children.forEach(child => processNode(child));
-        }
-      };
-
-      selection.forEach(node => processNode(node));
-
-      // Convert maps to arrays
-      results.components = Array.from(componentMap.entries()).map(([name, count]) => ({
-        name,
-        count
-      }));
-
-      results.styles = Array.from(styleMap.entries()).map(([name, count]) => ({
-        name,
-        count
-      }));
-
-      // Check for inconsistencies
-      if (results.components.length > 0) {
-        const componentCounts = results.components.map(c => c.count);
-        const avgCount = componentCounts.reduce((a, b) => a + b, 0) / componentCounts.length;
-        
-        results.components.forEach(component => {
-          if (component.count < avgCount * 0.5) {
-            inconsistencies.push(`Component "${component.name}" is used significantly less than others`);
-          }
-        });
+      
+      if (components.length === 0) {
+        inconsistencies.push('No components found in selection');
+      }
+      if (styles.colors.length === 0) {
+        inconsistencies.push('No colors found in selection');
+      }
+      if (styles.textStyles.length === 0) {
+        inconsistencies.push('No text styles found in selection');
+      }
+      if (styles.effects.length === 0) {
+        inconsistencies.push('No effects found in selection');
       }
 
-      results.inconsistencies = inconsistencies.map(message => ({ message }));
+      log('Analysis complete:', {
+        components: components.length,
+        colors: styles.colors.length,
+        textStyles: styles.textStyles.length,
+        effects: styles.effects.length,
+        inconsistencies: inconsistencies.length
+      });
+
+      // Enviar resultados
+      const analysisData: AnalysisData = {
+        components,
+        styles,
+        inconsistencies
+      };
 
       figma.ui.postMessage({
         type: 'analysis-results',
-        data: results
-      });
+        data: analysisData
+      } as PluginMessage);
 
     } catch (error) {
+      log('Error during analysis:', error);
       figma.ui.postMessage({
         type: 'error',
-        error: error instanceof Error ? error.message : 'An unknown error occurred'
-      });
+        message: error instanceof Error ? error.message : 'An unknown error occurred'
+      } as PluginMessage);
     }
   }
 }; 

@@ -1,28 +1,22 @@
 {
   "name": "design-system-analyzer",
   "version": "1.0.0",
-  "description": "A Figma plugin to analyze design system usage and consistency",
-  "main": "dist/code.js",
+  "description": "A Figma plugin to analyze design systems",
+  "main": "code.js",
   "scripts": {
-    "build": "webpack --mode=production",
-    "watch": "webpack --mode=development --watch",
-    "dev": "webpack --mode=development --watch",
-    "clean": "rm -rf dist",
-    "prebuild": "npm run clean"
+    "build": "webpack --config webpack.config.js && cp src/ui.html dist/ui.html",
+    "watch": "webpack --config webpack.config.js --watch"
   },
   "author": "",
   "license": "MIT",
-  "dependencies": {
-    "@figma/plugin-typings": "^1.77.0"
-  },
   "devDependencies": {
-    "@types/node": "^20.11.0",
-    "css-loader": "^6.8.1",
-    "html-webpack-plugin": "^5.6.0",
-    "style-loader": "^3.3.3",
+    "@figma/plugin-typings": "^1.77.0",
+    "@types/node": "^20.11.19",
+    "html-loader": "^5.1.0",
+    "raw-loader": "^4.0.2",
     "ts-loader": "^9.5.1",
     "typescript": "^5.3.3",
-    "webpack": "^5.89.0",
+    "webpack": "^5.90.1",
     "webpack-cli": "^5.1.4"
   }
 }
