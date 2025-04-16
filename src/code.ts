@@ -1,9 +1,41 @@
 /// <reference types="@figma/plugin-typings" />
 
-import { ColorInfo, ComponentInfo, VariableInfo, EffectInfo, AnalysisData, PluginMessage } from './types';
+import { ColorInfo, ComponentInfo, VariableInfo, EffectInfo, AnalysisData, PluginMessage, StylesData } from './types';
 
-// Configuração inicial da UI
-figma.showUI(__html__, { width: 400, height: 600 });
+// Plugin initialization and error handling
+try {
+  // Configure UI with error boundaries
+  figma.showUI(__html__, { 
+    width: 400, 
+    height: 600,
+    themeColors: true
+  });
+
+  // Initialize error handler
+  figma.ui.onmessage = async (msg: PluginMessage) => {
+    try {
+      switch (msg.type) {
+        case 'analyze-selection':
+          await handleAnalyzeSelection();
+          break;
+        case 'create-variable':
+          await handleCreateVariable(msg.data.hex);
+          break;
+        case 'replace-color':
+          await handleReplaceColor(msg.data.hex, msg.data.variableKey);
+          break;
+        default:
+          console.error('Unknown message type:', msg.type);
+      }
+    } catch (error) {
+      console.error('Error handling message:', error);
+      figma.notify('An error occurred. Check console for details.');
+    }
+  };
+} catch (error) {
+  console.error('Plugin initialization error:', error);
+  figma.notify('Failed to initialize plugin');
+}
 
 // Função auxiliar para log
 function log(message: string, data?: any) {
@@ -200,42 +232,31 @@ function processFills(fills: readonly Paint[] | PluginAPI['mixed']): ColorInfo[]
     return colors;
   }
 
-  fills.forEach((fill) => {
+  fills.forEach(fill => {
     if (fill.type === 'SOLID') {
       const hex = rgbToHex(fill.color.r, fill.color.g, fill.color.b);
-      let colorInfo = colors.find(c => c.hex === hex);
       
-      if (!colorInfo) {
-        colorInfo = {
+      // Check if this color is already in our list
+      const existingColor = colors.find(c => c.hex === hex);
+      if (!existingColor) {
+        // Add new color info
+        const colorInfo: ColorInfo = {
           hex,
-          directUses: 0,
-          variableUses: 0
+          isVariable: false
         };
-        colors.push(colorInfo);
-      }
 
-      if (fill.boundVariables?.color) {
-        const variable = figma.variables.getVariableById(fill.boundVariables.color.id);
-        if (variable) {
-          // Formatar o nome da variável para ser mais amigável
-          const variablePath = variable.name.split('/');
-          const variableName = variablePath.length > 1 
-            ? variablePath[variablePath.length - 2] + '/' + variablePath[variablePath.length - 1]
-            : variable.name;
-            
-          colorInfo.variableName = variableName;
-          colorInfo.variableId = variable.id;
-          colorInfo.variableKey = variable.key;
-          colorInfo.variableUses++;
-          
-          // Adicionar informação sobre a coleção se disponível
-          const collection = figma.variables.getVariableCollectionById(variable.variableCollectionId);
-          if (collection) {
-            colorInfo.variableName = `${collection.name}/${variableName}`;
+        // Check if this color is bound to a variable
+        if (fill.boundVariables && fill.boundVariables.color) {
+          const variableAlias = fill.boundVariables.color;
+          const variable = figma.variables.getVariableById(variableAlias.id);
+          if (variable) {
+            colorInfo.isVariable = true;
+            colorInfo.name = variable.name;
+            colorInfo.variableId = variable.id;
           }
         }
-      } else {
-        colorInfo.directUses++;
+
+        colors.push(colorInfo);
       }
     }
   });
@@ -244,170 +265,64 @@ function processFills(fills: readonly Paint[] | PluginAPI['mixed']): ColorInfo[]
 }
 
 // Função para processar efeitos
-function processEffects(effects: readonly Effect[], styles: Styles) {
+function processEffects(effects: readonly Effect[], styles: StylesData) {
   effects.forEach(effect => {
-    let effectName = '';
-    if (effect.type === 'DROP_SHADOW' || effect.type === 'INNER_SHADOW') {
-      effectName = `${effect.type} (${effect.color.r}, ${effect.color.g}, ${effect.color.b}, ${effect.color.a})`;
-    } else if (effect.type === 'LAYER_BLUR' || effect.type === 'BACKGROUND_BLUR') {
-      effectName = `${effect.type} (${effect.radius}px)`;
-    }
-    if (effectName && !styles.effects.includes(effectName)) {
-      styles.effects.push(effectName);
-    }
+    const effectInfo: EffectInfo = {
+      name: effect.type.toLowerCase(),
+      type: effect.visible ? 'active' : 'inactive'
+    };
+    styles.effects.push(effectInfo);
   });
 }
 
 // Map to store variables
 const variables = new Map<string, VariableInfo>();
 
-function createVariableInfo(variable: any): VariableInfo {
+function createVariableInfo(variable: Variable): VariableInfo {
+  const collection = figma.variables.getVariableCollectionById(variable.variableCollectionId);
   return {
     id: variable.id,
-    key: variable.key,
     name: variable.name,
-    value: variable.valuesByMode[Object.keys(variable.valuesByMode)[0]],
-    collection: variable.collectionId,
-    isFromLibrary: variable.remote,
-    libraryName: variable.remote ? variable.libraryName : undefined,
-    remote: variable.remote,
-    valuesByMode: variable.valuesByMode,
-    resolvedType: variable.resolvedType
+    value: typeof variable.valuesByMode === 'string' ? variable.valuesByMode : JSON.stringify(variable.valuesByMode),
+    collection: collection ? collection.name : 'Unknown Collection'
   };
 }
 
 // Função para processar um nó e seus filhos
-async function processNode(node: SceneNode, styles: Styles): Promise<void> {
+async function processNode(node: SceneNode, styles: StylesData, paintStyles: PaintStyle[]): Promise<void> {
   try {
-    // Verificar se o nó está visível
-    if (node.visible !== false) {
-      // Processar o nó atual como componente/frame
-      if (node.type === 'COMPONENT' || node.type === 'COMPONENT_SET' || node.type === 'INSTANCE') {
-        const componentInfo: ComponentInfo = {
-          id: node.id,
-          name: node.name,
-          description: node.type === 'INSTANCE' 
-            ? `Instance of ${(node as InstanceNode).mainComponent?.name || 'Unknown'}`
-            : node.type
-        };
-        if (!styles.components.some(c => c.id === componentInfo.id)) {
-          styles.components.push(componentInfo);
-          log('Added component:', componentInfo);
-        }
-      } else if (node.type === 'FRAME') {
-        const componentInfo: ComponentInfo = {
-          id: node.id,
-          name: node.name,
-          description: 'Frame'
-        };
-        if (!styles.components.some(c => c.id === componentInfo.id)) {
-          styles.components.push(componentInfo);
-          log('Added frame:', componentInfo);
+    // Process fills if available
+    if ('fills' in node) {
+      const fills = node.fills;
+      if (fills !== figma.mixed) {
+        const colors = processFills(fills);
+        styles.colors.push(...colors);
+      }
+    }
+
+    // Process text styles if available
+    if (node.type === 'TEXT') {
+      const textStyle = node.textStyleId;
+      if (typeof textStyle === 'string' && textStyle !== '') {
+        const style = figma.getStyleById(textStyle);
+        if (style && !styles.textStyles.includes(style.name)) {
+          styles.textStyles.push(style.name);
         }
       }
+    }
 
-      // Processar preenchimentos do nó atual
-      if ('fills' in node) {
-        // Processar fills diretos
-        if (node.fills) {
-          const colors = processFills(node.fills);
-          colors.forEach(color => {
-            let existingColor = styles.colors.find(c => c.hex === color.hex);
-            if (!existingColor) {
-              styles.colors.push(color);
-              log('Added color from fills:', color);
-            } else {
-              existingColor.directUses += color.directUses;
-              existingColor.variableUses += color.variableUses;
-              if (color.variableName) {
-                existingColor.variableName = color.variableName;
-                existingColor.variableId = color.variableId;
-                existingColor.variableKey = color.variableKey;
-              }
-            }
-          });
-        }
-
-        // Processar backgrounds
-        if ('backgrounds' in node && node.backgrounds) {
-          const bgColors = processFills(node.backgrounds);
-          bgColors.forEach(color => {
-            let existingColor = styles.colors.find(c => c.hex === color.hex);
-            if (!existingColor) {
-              styles.colors.push(color);
-              log('Added color from background:', color);
-            } else {
-              existingColor.directUses += color.directUses;
-              existingColor.variableUses += color.variableUses;
-              if (color.variableName) {
-                existingColor.variableName = color.variableName;
-                existingColor.variableId = color.variableId;
-                existingColor.variableKey = color.variableKey;
-              }
-            }
-          });
-        }
-
-        // Processar strokes
-        if ('strokes' in node && node.strokes) {
-          const strokeColors = processFills(node.strokes);
-          strokeColors.forEach(color => {
-            let existingColor = styles.colors.find(c => c.hex === color.hex);
-            if (!existingColor) {
-              styles.colors.push(color);
-              log('Added color from stroke:', color);
-            } else {
-              existingColor.directUses += color.directUses;
-              existingColor.variableUses += color.variableUses;
-              if (color.variableName) {
-                existingColor.variableName = color.variableName;
-                existingColor.variableId = color.variableId;
-                existingColor.variableKey = color.variableKey;
-              }
-            }
-          });
-        }
+    // Process effects if available
+    if ('effects' in node) {
+      const effects = node.effects;
+      if (Array.isArray(effects)) {
+        processEffects(effects, styles);
       }
+    }
 
-      // Processar estilos de texto
-      if ('textStyleId' in node && node.textStyleId && node.type === 'TEXT') {
-        const textStyle = figma.getStyleById(node.textStyleId as string);
-        if (textStyle && textStyle.name) {
-          const styleName = textStyle.name.split('/').pop() || textStyle.name;
-          if (!styles.textStyles.includes(styleName)) {
-            styles.textStyles.push(styleName);
-            log('Added text style:', styleName);
-          }
-        }
-      }
-
-      // Processar efeitos
-      if ('effects' in node && node.effects && node.effects.length > 0) {
-        processEffects(node.effects, styles);
-      }
-
-      // Process variables
-      if (node.boundVariables) {
-        for (const [field, value] of Object.entries(node.boundVariables)) {
-          if (value && typeof value === 'object' && 'id' in value) {
-            const variableId = typeof value.id === 'string' ? value.id : value.id.toString();
-            const variable = await figma.variables.getVariableByIdAsync(variableId);
-            if (variable) {
-              const variableInfo = createVariableInfo(variable);
-              if (!variables.has(variableInfo.id)) {
-                variables.set(variableInfo.id, variableInfo);
-                log('Added variable:', variableInfo);
-              }
-            }
-          }
-        }
-      }
-
-      // Processar nós filhos recursivamente
-      if ('children' in node) {
-        for (const child of node.children) {
-          await processNode(child, styles);
-        }
+    // Process children recursively
+    if ('children' in node) {
+      for (const child of node.children) {
+        await processNode(child, styles, paintStyles);
       }
     }
   } catch (error) {
@@ -416,142 +331,88 @@ async function processNode(node: SceneNode, styles: Styles): Promise<void> {
 }
 
 // Função para coletar componentes
-function collectComponents(node: SceneNode, components: Component[], processedIds: Set<string>) {
-  if (node.type === 'COMPONENT' || node.type === 'COMPONENT_SET') {
-    if (!processedIds.has(node.id)) {
-      components.push({
-        name: node.name,
-        type: node.type
-      });
-      processedIds.add(node.id);
-      log('Added component:', { name: node.name, type: node.type });
-    }
+function collectComponents(node: SceneNode, components: ComponentInfo[], processedIds: Set<string>) {
+  if (processedIds.has(node.id)) {
+    return;
+  }
+  processedIds.add(node.id);
+
+  if (node.type === 'COMPONENT' || node.type === 'INSTANCE' || node.type === 'FRAME') {
+    const componentInfo: ComponentInfo = {
+      name: node.name,
+      type: node.type
+    };
+    components.push(componentInfo);
   }
 
   if ('children' in node) {
-    node.children.forEach(child => collectComponents(child, components, processedIds));
+    for (const child of node.children) {
+      collectComponents(child, components, processedIds);
+    }
   }
 }
 
-// Handler para mensagens da UI
-figma.ui.onmessage = async (msg: PluginMessage) => {
-  if (msg.type === 'analyze-design-system') {
-    try {
-      // Verificar seleção
-      if (figma.currentPage.selection.length === 0) {
-        throw new Error('Please select at least one frame or component to analyze.');
-      }
+// Add new handler functions
+async function handleAnalyzeSelection() {
+  try {
+    if (figma.currentPage.selection.length === 0) {
+      figma.notify('Please select something to analyze');
+      return;
+    }
 
-      // Inicializar dados
-      const styles: Styles = {
+    const data: AnalysisData = {
+      components: [],
+      styles: {
         colors: [],
         textStyles: [],
-        effects: [],
-        components: []
-      };
+        effects: []
+      },
+      inconsistencies: []
+    };
 
-      // Processar seleção
-      for (const node of figma.currentPage.selection) {
-        // Primeiro processar o nó atual
-        await processNode(node, styles);
-        
-        // Se for um frame ou componente, processar seus filhos
-        if ('children' in node) {
-          for (const child of node.children) {
-            await processNode(child, styles);
-          }
-        }
-      }
-
-      // Verificar inconsistências
-      const inconsistencies: string[] = [];
-      
-      if (styles.components.length === 0) {
-        inconsistencies.push('No components found in selection');
-      }
-      if (styles.colors.length === 0) {
-        inconsistencies.push('No colors found in selection');
-      }
-      if (styles.textStyles.length === 0) {
-        inconsistencies.push('No text styles found in selection');
-      }
-      if (styles.effects.length === 0) {
-        inconsistencies.push('No effects found in selection');
-      }
-
-      // Log para debug
-      log('Analysis results:', {
-        components: styles.components.length,
-        colors: styles.colors.length,
-        textStyles: styles.textStyles.length,
-        effects: styles.effects.length
-      });
-
-      // Enviar resultados
-      const analysisData: AnalysisData = {
-        components: styles.components.map(c => ({
-          name: c.name,
-          type: c.description.includes('Instance') ? 'INSTANCE' : 
-                c.description === 'Frame' ? 'FRAME' : 'COMPONENT'
-        })),
-        styles,
-        inconsistencies
-      };
-
-      figma.ui.postMessage({
-        type: 'analysis-results',
-        data: analysisData
-      } as PluginMessage);
-
-    } catch (error) {
-      console.error('Analysis error:', error);
-      figma.ui.postMessage({
-        type: 'error',
-        message: error instanceof Error ? error.message : 'An unknown error occurred'
-      } as PluginMessage);
+    const processedIds = new Set<string>();
+    const paintStyles = figma.getLocalPaintStyles();
+    
+    for (const node of figma.currentPage.selection) {
+      await processNode(node, data.styles, paintStyles);
+      collectComponents(node, data.components, processedIds);
     }
-  } else if (msg.type === 'find-variables') {
-    try {
-      const { hex } = msg.data;
-      const variables = await findVariablesWithHex(hex);
-      
-      if (variables.length === 0) {
-        throw new Error('No variables found with this color');
-      }
-      
-      figma.ui.postMessage({
-        type: 'variable-options',
-        data: {
-          hex,
-          variables
-        }
-      } as PluginMessage);
-    } catch (error) {
-      figma.ui.postMessage({
-        type: 'error',
-        message: error instanceof Error ? error.message : 'Failed to find variables'
-      } as PluginMessage);
-    }
-  } else if (msg.type === 'use-variable') {
-    try {
-      const { hex, variableKey } = msg.data;
-      
-      // Substituir todos os usos diretos pela variável
-      for (const node of figma.currentPage.selection) {
-        await replaceDirectFillsWithVariable(node, hex, variableKey);
-      }
 
-      // Reanalisar para atualizar a UI
-      figma.ui.postMessage({ 
-        pluginMessage: { 
-          type: 'analyze-design-system' 
-        } 
-      });
-    } catch (error) {
-      figma.ui.postMessage({
-        type: 'error',
-        message: error instanceof Error ? error.message : 'Failed to use color variable'
-      } as PluginMessage);
-    }
+    figma.ui.postMessage({
+      type: 'analysis-results',
+      data
+    });
+  } catch (error) {
+    console.error('Analysis error:', error);
+    figma.notify('Failed to analyze selection');
   }
-}; 
+}
+
+async function handleCreateVariable(hex: string) {
+  try {
+    const variable = await createColorVariable(hex);
+    figma.notify('Color variable created successfully');
+    return variable;
+  } catch (error) {
+    console.error('Error creating variable:', error);
+    figma.notify('Failed to create color variable');
+  }
+}
+
+async function handleReplaceColor(hex: string, variableKey: string) {
+  try {
+    if (figma.currentPage.selection.length === 0) {
+      figma.notify('Please select nodes to update');
+      return;
+    }
+
+    for (const node of figma.currentPage.selection) {
+      await replaceDirectFillsWithVariable(node, hex, variableKey);
+    }
+    
+    figma.notify('Colors replaced successfully');
+  } catch (error) {
+    console.error('Error replacing colors:', error);
+    figma.notify('Failed to replace colors');
+  }
+} 

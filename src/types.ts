@@ -5,17 +5,14 @@ export interface Component {
 
 export interface ColorInfo {
   hex: string;
-  directUses: number;
-  variableUses: number;
-  variableName?: string;
+  name?: string;
+  isVariable: boolean;
   variableId?: string;
-  variableKey?: string;
 }
 
 export interface EffectInfo {
   name: string;
   type: string;
-  visible: boolean;
 }
 
 export interface RemoteInfo {
@@ -24,20 +21,14 @@ export interface RemoteInfo {
 
 export interface VariableInfo {
   id: string;
-  key: string;
   name: string;
-  value: RGB;
+  value: string;
   collection: string;
-  isFromLibrary: boolean;
-  libraryName?: string;
-  remote?: RemoteInfo;
-  valuesByMode: Record<string, any>;
-  resolvedType: string;
 }
 
 export interface ComponentInfo {
   name: string;
-  id: string;
+  type: 'INSTANCE' | 'FRAME' | 'COMPONENT';
 }
 
 export interface VariableAlias {
@@ -46,67 +37,61 @@ export interface VariableAlias {
   name: string;
 }
 
-export interface AnalysisResult {
-  components: ComponentInfo[];
+export interface StylesData {
   colors: ColorInfo[];
   textStyles: string[];
-  effects: string[];
-  inconsistencies: string[];
-}
-
-export interface Styles {
-  colors: ColorInfo[];
-  textStyles: string[];
-  effects: string[];
-  components: ComponentInfo[];
+  effects: EffectInfo[];
 }
 
 export interface AnalysisData {
-  components: Component[];
-  styles: Styles;
+  components: ComponentInfo[];
+  styles: StylesData;
   inconsistencies: string[];
 }
 
-export interface FindVariablesMessage {
-  type: 'find-variables';
+export type MessageType = 
+  | 'analyze-selection'
+  | 'create-variable'
+  | 'replace-color'
+  | 'analysis-results'
+  | 'error';
+
+export interface BaseMessage {
+  type: MessageType;
+}
+
+export interface AnalyzeSelectionMessage extends BaseMessage {
+  type: 'analyze-selection';
+}
+
+export interface CreateVariableMessage extends BaseMessage {
+  type: 'create-variable';
   data: {
     hex: string;
   };
 }
 
-export interface VariableOptionsMessage {
-  type: 'variable-options';
-  data: {
-    hex: string;
-    variables: VariableInfo[];
-  };
-}
-
-export interface UseVariableMessage {
-  type: 'use-variable';
+export interface ReplaceColorMessage extends BaseMessage {
+  type: 'replace-color';
   data: {
     hex: string;
     variableKey: string;
   };
 }
 
-export interface AnalysisMessage {
-  type: 'analyze-design-system';
-}
-
-export interface AnalysisResultsMessage {
+export interface AnalysisResultsMessage extends BaseMessage {
   type: 'analysis-results';
   data: AnalysisData;
 }
 
-export interface ErrorMessage {
+export interface ErrorMessage extends BaseMessage {
   type: 'error';
   message: string;
 }
 
-export type PluginMessage = 
-  | { type: 'analyze' }
-  | { type: 'createVariable'; color: string }
-  | { type: 'useVariable'; color: string; variableId: string }
-  | { type: 'analysisResult'; result: AnalysisResult }
-  | { type: 'error'; message: string }; 
+export type PluginMessage =
+  | AnalyzeSelectionMessage
+  | CreateVariableMessage
+  | ReplaceColorMessage
+  | AnalysisResultsMessage
+  | ErrorMessage; 
