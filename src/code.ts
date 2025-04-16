@@ -64,9 +64,10 @@ function hexToRgb(hex: string): { r: number, g: number, b: number } {
 
 // Função para verificar se dois valores RGB são iguais
 function isSameColor(color1: RGB, color2: RGB): boolean {
-  return Math.abs(color1.r - color2.r) < 0.001 && 
-         Math.abs(color1.g - color2.g) < 0.001 && 
-         Math.abs(color1.b - color2.b) < 0.001;
+  const tolerance = 0.001; // Small tolerance for floating point comparison
+  return Math.abs(color1.r - color2.r) < tolerance &&
+         Math.abs(color1.g - color2.g) < tolerance &&
+         Math.abs(color1.b - color2.b) < tolerance;
 }
 
 // Função para criar uma variável de cor
@@ -137,38 +138,40 @@ interface LocalVariableInfo {
 }
 
 // Função para encontrar todas as variáveis com um determinado valor hexadecimal
-async function findVariablesWithHex(hex: string): Promise<LocalVariableInfo[]> {
-  const variables: LocalVariableInfo[] = [];
+async function findVariablesWithHex(hex: string): Promise<VariableInfo[]> {
+  const variables: VariableInfo[] = [];
   const rgb = hexToRgb(hex);
   
-  const allVariables = await figma.variables.getLocalVariablesAsync('COLOR');
-  
-  for (const variable of allVariables) {
-    try {
-      const collection = await figma.variables.getVariableCollectionByIdAsync(variable.variableCollectionId);
-      if (!collection) continue;
-
-      const mode = collection.modes[0];
-      const value = variable.valuesByMode[mode.modeId];
+  try {
+    const collections = await figma.variables.getLocalVariableCollectionsAsync();
+    
+    for (const collection of collections) {
+      const colorVariables = collection.variableIds
+        .map(id => figma.variables.getVariableById(id))
+        .filter(v => v && v.resolvedType === 'COLOR') as Variable[];
       
-      if (value && typeof value === 'object' && 'r' in value) {
-        const colorValue = value as RGB;
-        if (isSameColor(colorValue, rgb)) {
-          const variableInfo: LocalVariableInfo = {
-            id: variable.id,
-            key: variable.key,
-            name: variable.name,
-            value: colorValue,
-            collection: collection.name,
-            isFromLibrary: variable.remote,
-            libraryName: collection.remote ? collection.name : undefined
-          };
-          variables.push(variableInfo);
+      for (const variable of colorVariables) {
+        const mode = collection.modes[0];
+        const value = variable.valuesByMode[mode.modeId];
+        
+        if (value && typeof value === 'object' && 'r' in value) {
+          const colorValue = value as RGB;
+          if (isSameColor(colorValue, rgb)) {
+            variables.push({
+              id: variable.id,
+              key: variable.key,
+              name: variable.name,
+              collection: collection.name,
+              isFromLibrary: variable.remote,
+              libraryName: collection.remote ? collection.name : undefined
+            });
+          }
         }
       }
-    } catch (error) {
-      console.error('Error processing variable:', error);
     }
+  } catch (error) {
+    console.error('Error finding variables:', error);
+    figma.notify('Error searching for color variables');
   }
   
   return variables;
@@ -355,12 +358,18 @@ function collectComponents(node: SceneNode, components: ComponentInfo[], process
 // Add new handler functions
 async function handleAnalyzeSelection() {
   try {
-    if (figma.currentPage.selection.length === 0) {
-      figma.notify('Please select something to analyze');
+    const selection = figma.currentPage.selection;
+    
+    if (selection.length === 0) {
+      figma.notify('Please select at least one frame or component to analyze');
+      figma.ui.postMessage({
+        type: 'error',
+        message: 'Please select at least one frame or component to analyze.'
+      });
       return;
     }
 
-    const data: AnalysisData = {
+    const analysis: AnalysisData = {
       components: [],
       styles: {
         colors: [],
@@ -370,21 +379,99 @@ async function handleAnalyzeSelection() {
       inconsistencies: []
     };
 
-    const processedIds = new Set<string>();
-    const paintStyles = figma.getLocalPaintStyles();
-    
-    for (const node of figma.currentPage.selection) {
-      await processNode(node, data.styles, paintStyles);
-      collectComponents(node, data.components, processedIds);
+    const processedNodes = new Set<string>();
+    const colorUsage = new Map<string, { direct: number, variable: number, info?: ColorInfo }>();
+
+    // Process each selected node
+    for (const node of selection) {
+      await processNodeColors(node, colorUsage);
+      await processNodeComponents(node, analysis.components, processedNodes);
     }
 
+    // Convert color usage to ColorInfo array
+    analysis.styles.colors = Array.from(colorUsage.values()).map(usage => usage.info!);
+
+    // Send results back to UI
     figma.ui.postMessage({
       type: 'analysis-results',
-      data
+      data: analysis
     });
+
   } catch (error) {
-    console.error('Analysis error:', error);
-    figma.notify('Failed to analyze selection');
+    console.error('Error analyzing selection:', error);
+    figma.notify('Error analyzing selection');
+    figma.ui.postMessage({
+      type: 'error',
+      message: 'Error analyzing selection: ' + (error instanceof Error ? error.message : String(error))
+    });
+  }
+}
+
+async function processNodeColors(node: SceneNode, colorUsage: Map<string, { direct: number, variable: number, info?: ColorInfo }>) {
+  if ('fills' in node && node.fills) {
+    const fills = node.fills as Paint[];
+    if (Array.isArray(fills)) {
+      for (const fill of fills) {
+        if (fill.type === 'SOLID') {
+          const hex = rgbToHex(fill.color.r, fill.color.g, fill.color.b);
+          
+          let usage = colorUsage.get(hex) || { direct: 0, variable: 0 };
+          
+          if (fill.boundVariables && fill.boundVariables.color) {
+            const variable = figma.variables.getVariableById(fill.boundVariables.color.id);
+            if (variable) {
+              usage.variable++;
+              usage.info = {
+                hex,
+                isVariable: true,
+                variableName: variable.name,
+                variableId: variable.id,
+                variableKey: variable.key,
+                directUses: usage.direct,
+                variableUses: usage.variable
+              };
+            }
+          } else {
+            usage.direct++;
+            if (!usage.info) {
+              usage.info = {
+                hex,
+                isVariable: false,
+                directUses: usage.direct,
+                variableUses: usage.variable
+              };
+            } else {
+              usage.info.directUses = usage.direct;
+              usage.info.variableUses = usage.variable;
+            }
+          }
+          
+          colorUsage.set(hex, usage);
+        }
+      }
+    }
+  }
+
+  if ('children' in node) {
+    for (const child of node.children) {
+      await processNodeColors(child, colorUsage);
+    }
+  }
+}
+
+async function processNodeComponents(node: SceneNode, components: ComponentInfo[], processedNodes: Set<string>) {
+  if ((node.type === 'COMPONENT' || node.type === 'INSTANCE') && !processedNodes.has(node.id)) {
+    processedNodes.add(node.id);
+    components.push({
+      name: node.name,
+      type: node.type
+    });
+  }
+
+  if ('children' in node) {
+    for (const child of node.children) {
+      await processNodeComponents(child, components, processedNodes);
+    }
   }
 }
 

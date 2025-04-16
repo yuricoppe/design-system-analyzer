@@ -6,8 +6,12 @@ export interface Component {
 export interface ColorInfo {
   hex: string;
   name?: string;
-  isVariable: boolean;
+  variableName?: string;
   variableId?: string;
+  variableKey?: string;
+  isVariable: boolean;
+  directUses: number;
+  variableUses: number;
 }
 
 export interface EffectInfo {
@@ -21,9 +25,11 @@ export interface RemoteInfo {
 
 export interface VariableInfo {
   id: string;
+  key: string;
   name: string;
-  value: string;
   collection: string;
+  isFromLibrary: boolean;
+  libraryName?: string;
 }
 
 export interface ComponentInfo {
