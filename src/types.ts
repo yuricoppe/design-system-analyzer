@@ -5,30 +5,53 @@ export interface Component {
 
 export interface ColorInfo {
   hex: string;
+  directUses: number;
+  variableUses: number;
   variableName?: string;
   variableId?: string;
   variableKey?: string;
-  directUses: number;
-  variableUses: number;
+}
+
+export interface EffectInfo {
+  name: string;
+  type: string;
+  visible: boolean;
+}
+
+export interface RemoteInfo {
+  name: string;
 }
 
 export interface VariableInfo {
   id: string;
   key: string;
   name: string;
-  value: any;
+  value: RGB;
   collection: string;
   isFromLibrary: boolean;
   libraryName?: string;
-  remote: boolean;
-  valuesByMode: { [modeId: string]: any };
+  remote?: RemoteInfo;
+  valuesByMode: Record<string, any>;
   resolvedType: string;
 }
 
 export interface ComponentInfo {
+  name: string;
+  id: string;
+}
+
+export interface VariableAlias {
+  type: 'VARIABLE_ALIAS';
   id: string;
   name: string;
-  description: string;
+}
+
+export interface AnalysisResult {
+  components: ComponentInfo[];
+  colors: ColorInfo[];
+  textStyles: string[];
+  effects: string[];
+  inconsistencies: string[];
 }
 
 export interface Styles {
@@ -82,9 +105,8 @@ export interface ErrorMessage {
 }
 
 export type PluginMessage = 
-  | FindVariablesMessage
-  | VariableOptionsMessage
-  | UseVariableMessage 
-  | AnalysisMessage 
-  | AnalysisResultsMessage 
-  | ErrorMessage; 
+  | { type: 'analyze' }
+  | { type: 'createVariable'; color: string }
+  | { type: 'useVariable'; color: string; variableId: string }
+  | { type: 'analysisResult'; result: AnalysisResult }
+  | { type: 'error'; message: string }; 

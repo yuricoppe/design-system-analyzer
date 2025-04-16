@@ -1,4 +1,6 @@
-import { Component, Styles, AnalysisData, PluginMessage, ColorInfo, ComponentInfo, VariableInfo } from './types';
+/// <reference types="@figma/plugin-typings" />
+
+import { ColorInfo, ComponentInfo, VariableInfo, EffectInfo, AnalysisData, PluginMessage } from './types';
 
 // Configuração inicial da UI
 figma.showUI(__html__, { width: 400, height: 600 });
