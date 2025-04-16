@@ -83,6 +83,32 @@
       border-radius: 4px;
       border: 1px solid #E5E5E5;
     }
+    
+    .color-info {
+      flex: 1;
+    }
+    
+    .color-name {
+      font-weight: 500;
+    }
+    
+    .color-usage {
+      font-size: 12px;
+      color: #666;
+      margin-top: 2px;
+    }
+    
+    .color-usage span {
+      margin-right: 8px;
+    }
+    
+    .color-usage .direct {
+      color: #FF4D4D;
+    }
+    
+    .color-usage .variable {
+      color: #18A0FB;
+    }
   </style>
 </head>
 <body>
@@ -138,13 +164,39 @@
           
           const colorSquare = document.createElement('div');
           colorSquare.className = 'color-square';
-          colorSquare.style.backgroundColor = item;
+          colorSquare.style.backgroundColor = item.hex;
           
-          const colorName = document.createElement('span');
-          colorName.textContent = item;
+          const colorInfo = document.createElement('div');
+          colorInfo.className = 'color-info';
+          
+          const colorName = document.createElement('div');
+          colorName.className = 'color-name';
+          colorName.textContent = item.variableName 
+            ? `${item.variableName} (${item.hex})`
+            : item.hex;
+          
+          const colorUsage = document.createElement('div');
+          colorUsage.className = 'color-usage';
+          
+          if (item.directUses > 0) {
+            const directUses = document.createElement('span');
+            directUses.className = 'direct';
+            directUses.textContent = `Direct: ${item.directUses}`;
+            colorUsage.appendChild(directUses);
+          }
+          
+          if (item.variableUses > 0) {
+            const variableUses = document.createElement('span');
+            variableUses.className = 'variable';
+            variableUses.textContent = `Variable: ${item.variableUses}`;
+            colorUsage.appendChild(variableUses);
+          }
+          
+          colorInfo.appendChild(colorName);
+          colorInfo.appendChild(colorUsage);
           
           colorItem.appendChild(colorSquare);
-          colorItem.appendChild(colorName);
+          colorItem.appendChild(colorInfo);
           li.appendChild(colorItem);
         } else {
           li.textContent = item;

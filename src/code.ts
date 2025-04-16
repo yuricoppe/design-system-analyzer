@@ -1,4 +1,4 @@
-import { Component, Styles, AnalysisData, PluginMessage } from './types';
+import { Component, Styles, AnalysisData, PluginMessage, ColorInfo } from './types';
 
 // Configuração inicial da UI
 figma.showUI(__html__, { width: 400, height: 600 });
@@ -22,18 +22,47 @@ function processFills(fills: readonly Paint[], styles: Styles) {
   fills.forEach(fill => {
     if (fill.type === 'SOLID') {
       const hexColor = rgbToHex(fill.color.r, fill.color.g, fill.color.b);
-      if (!styles.colors.includes(hexColor)) {
-        styles.colors.push(hexColor);
-        log('Added color:', hexColor);
+      
+      // Verificar se é uma variável de cor
+      let variableName: string | undefined;
+      if ('boundVariables' in fill && fill.boundVariables?.color) {
+        const variable = figma.variables.getVariableById(fill.boundVariables.color.id);
+        if (variable) {
+          variableName = variable.name;
+        }
+      }
+
+      // Encontrar ou criar entrada para esta cor
+      let colorInfo = styles.colors.find(c => c.hex === hexColor);
+      if (!colorInfo) {
+        colorInfo = {
+          hex: hexColor,
+          variableName,
+          directUses: 0,
+          variableUses: 0
+        };
+        styles.colors.push(colorInfo);
+      }
+
+      // Atualizar contagem de usos
+      if (variableName) {
+        colorInfo.variableUses++;
+      } else {
+        colorInfo.directUses++;
       }
     } else if (fill.type === 'GRADIENT_LINEAR' || fill.type === 'GRADIENT_RADIAL') {
       const gradientStops = fill.gradientStops.map(stop => 
         rgbToHex(stop.color.r, stop.color.g, stop.color.b)
       );
       const gradientName = `${fill.type} (${gradientStops.join(' → ')})`;
-      if (!styles.colors.includes(gradientName)) {
-        styles.colors.push(gradientName);
-        log('Added gradient:', gradientName);
+      
+      // Adicionar gradiente como uma cor especial
+      if (!styles.colors.some(c => c.hex === gradientName)) {
+        styles.colors.push({
+          hex: gradientName,
+          directUses: 1,
+          variableUses: 0
+        });
       }
     }
   });
@@ -50,7 +79,6 @@ function processEffects(effects: readonly Effect[], styles: Styles) {
     }
     if (effectName && !styles.effects.includes(effectName)) {
       styles.effects.push(effectName);
-      log('Added effect:', effectName);
     }
   });
 }

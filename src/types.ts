@@ -3,8 +3,15 @@ export interface Component {
   type: 'COMPONENT' | 'COMPONENT_SET';
 }
 
+export interface ColorInfo {
+  hex: string;
+  variableName?: string;
+  directUses: number;
+  variableUses: number;
+}
+
 export interface Styles {
-  colors: string[];
+  colors: ColorInfo[];
   textStyles: string[];
   effects: string[];
 }
