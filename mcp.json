@@ -1,0 +1,30 @@
+{
+  "version": 1,
+  "configurations": [
+    {
+      "name": "Figma Plugin Development",
+      "files": [
+        "design-system-analyzer/src/**/*.{js,ts,html}"
+      ],
+      "exclude": [
+        "**/node_modules/**",
+        "**/dist/**"
+      ],
+      "rules": [
+        {
+          "pattern": "\\b(console\\.log|console\\.error|console\\.warn)\\b",
+          "message": "Consider using the log function for consistent logging"
+        },
+        {
+          "pattern": "\\bfigma\\.notify\\b",
+          "message": "Make sure notification messages are user-friendly"
+        }
+      ]
+    }
+  ],
+  "settings": {
+    "enableMultiCursorPaste": true,
+    "enableIntelliSense": true,
+    "formatOnPaste": true
+  }
+}
