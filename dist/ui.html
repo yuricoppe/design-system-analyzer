@@ -109,6 +109,99 @@
     .color-usage .variable {
       color: #18A0FB;
     }
+
+    .color-actions {
+      display: flex;
+      gap: 8px;
+      margin-top: 8px;
+    }
+
+    .color-actions button {
+      margin: 0;
+      padding: 4px 8px;
+      font-size: 12px;
+      width: auto;
+    }
+
+    .color-actions .use-variable {
+      background: #18A0FB;
+    }
+
+    .color-actions .create-variable {
+      background: #4CAF50;
+    }
+
+    .color-actions button:hover {
+      opacity: 0.9;
+    }
+
+    .dialog {
+      display: none;
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: rgba(0, 0, 0, 0.5);
+      z-index: 1000;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .dialog-content {
+      background: white;
+      padding: 20px;
+      border-radius: 8px;
+      width: 300px;
+      max-width: 90%;
+    }
+
+    .dialog-title {
+      font-size: 16px;
+      font-weight: 500;
+      margin-bottom: 16px;
+    }
+
+    .variable-option {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px;
+      border-radius: 4px;
+      margin-bottom: 8px;
+      cursor: pointer;
+      background: #F5F5F5;
+    }
+
+    .variable-option:hover {
+      background: #E5E5E5;
+    }
+
+    .variable-color {
+      width: 16px;
+      height: 16px;
+      border-radius: 4px;
+      border: 1px solid #E5E5E5;
+    }
+
+    .variable-info {
+      flex: 1;
+    }
+
+    .variable-name {
+      font-weight: 500;
+    }
+
+    .variable-collection {
+      font-size: 12px;
+      color: #666;
+    }
+
+    .variable-library {
+      font-size: 11px;
+      color: #999;
+      font-style: italic;
+    }
   </style>
 </head>
 <body>
@@ -146,10 +239,76 @@
     <div class="error" id="error"></div>
   </div>
 
+  <div class="dialog" id="variableDialog">
+    <div class="dialog-content">
+      <div class="dialog-title">Select Variable</div>
+      <div id="variableOptions"></div>
+    </div>
+  </div>
+
   <script>
     document.getElementById('analyze').onclick = () => {
       parent.postMessage({ pluginMessage: { type: 'analyze-design-system' } }, '*');
     };
+
+    function showVariableDialog(hex, variables) {
+      const dialog = document.getElementById('variableDialog');
+      const options = document.getElementById('variableOptions');
+      options.innerHTML = '';
+
+      variables.forEach(variable => {
+        const option = document.createElement('div');
+        option.className = 'variable-option';
+        
+        const color = document.createElement('div');
+        color.className = 'variable-color';
+        color.style.backgroundColor = hex;
+        
+        const info = document.createElement('div');
+        info.className = 'variable-info';
+        
+        const name = document.createElement('div');
+        name.className = 'variable-name';
+        name.textContent = variable.name;
+        
+        const collection = document.createElement('div');
+        collection.className = 'variable-collection';
+        collection.textContent = variable.collection;
+        
+        info.appendChild(name);
+        info.appendChild(collection);
+        
+        if (variable.isFromLibrary && variable.libraryName) {
+          const library = document.createElement('div');
+          library.className = 'variable-library';
+          library.textContent = `From: ${variable.libraryName}`;
+          info.appendChild(library);
+        }
+        
+        option.appendChild(color);
+        option.appendChild(info);
+        
+        option.onclick = () => {
+          parent.postMessage({ 
+            pluginMessage: { 
+              type: 'use-variable',
+              data: { hex, variableKey: variable.key }
+            } 
+          }, '*');
+          dialog.style.display = 'none';
+        };
+        
+        options.appendChild(option);
+      });
+
+      dialog.onclick = (event) => {
+        if (event.target === dialog) {
+          dialog.style.display = 'none';
+        }
+      };
+
+      dialog.style.display = 'flex';
+    }
 
     function updateSection(id, items) {
       const list = document.getElementById(id);
@@ -191,9 +350,40 @@
             variableUses.textContent = `Variable: ${item.variableUses}`;
             colorUsage.appendChild(variableUses);
           }
-          
+
           colorInfo.appendChild(colorName);
           colorInfo.appendChild(colorUsage);
+
+          if (item.directUses > 0) {
+            const colorActions = document.createElement('div');
+            colorActions.className = 'color-actions';
+
+            const useVariableBtn = document.createElement('button');
+            useVariableBtn.className = 'use-variable';
+            useVariableBtn.textContent = item.variableName ? 'Use Variable' : 'Search Variable';
+            useVariableBtn.onclick = () => {
+              if (item.variableName && item.variableId) {
+                // Se já tem variável na seleção, usa ela diretamente
+                const variable = figma.variables.getVariableById(item.variableId);
+                parent.postMessage({ 
+                  pluginMessage: { 
+                    type: 'use-variable',
+                    data: { hex: item.hex, variableKey: variable.key }
+                  } 
+                }, '*');
+              } else {
+                // Se não tem variável, busca todas as opções
+                parent.postMessage({ 
+                  pluginMessage: { 
+                    type: 'find-variables',
+                    data: { hex: item.hex }
+                  } 
+                }, '*');
+              }
+            };
+            colorActions.appendChild(useVariableBtn);
+            colorInfo.appendChild(colorActions);
+          }
           
           colorItem.appendChild(colorSquare);
           colorItem.appendChild(colorInfo);
@@ -219,6 +409,8 @@
         updateSection('textStyles', data.styles.textStyles);
         updateSection('effects', data.styles.effects);
         updateSection('inconsistencies', data.inconsistencies);
+      } else if (message.type === 'variable-options') {
+        showVariableDialog(message.data.hex, message.data.variables);
       } else if (message.type === 'error') {
         document.querySelector('.results').style.display = 'none';
         const errorElement = document.getElementById('error');
